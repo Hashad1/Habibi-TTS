@@ -1,6 +1,5 @@
 import json
 import os
-import psutil
 import re
 import tempfile
 from collections import OrderedDict
@@ -10,10 +9,22 @@ from importlib.resources import files
 import click
 import gradio as gr
 import numpy as np
+import psutil
 import soundfile as sf
 import torch
 import torchaudio
 from cached_path import cached_path
+from f5_tts.infer.utils_infer import (
+    load_model,
+    load_vocoder,
+    preprocess_ref_audio_text,
+    remove_silence_for_generated_wav,
+    tempfile_kwargs,
+)
+from f5_tts.model import DiT
+
+from habibi_tts.infer.utils_infer import infer_process
+from habibi_tts.model.utils import dialect_id_map
 
 
 try:
@@ -31,17 +42,6 @@ def gpu_decorator(func):
         return func
 
 
-from f5_tts.infer.utils_infer import (
-    infer_process,
-    load_model,
-    load_vocoder,
-    preprocess_ref_audio_text,
-    remove_silence_for_generated_wav,
-    tempfile_kwargs,
-)
-from f5_tts.model import DiT
-
-
 vocoder = load_vocoder()
 
 
@@ -57,7 +57,7 @@ else:
         gpu_memory = torch.xpu.get_device_properties(0).total_memory / (1024**3)
     else:
         gpu_memory = 0
-    
+
     if gpu_memory > 12:
         lazy_load_model = False
     else:
@@ -85,41 +85,59 @@ msa_model_path = str(cached_path("hf://SWivid/Habibi-TTS/Specialized/MSA/model_2
 sau_model_path = str(cached_path("hf://SWivid/Habibi-TTS/Specialized/SAU/model_200000.safetensors"))
 uae_model_path = str(cached_path("hf://SWivid/Habibi-TTS/Specialized/UAE/model_100000.safetensors"))
 
-unified_model = load_model(
-    DiT,
-    v1_base_cfg,
-    uni_model_path,
-    vocab_file=uni_vocab_path,
-) if not lazy_load_model else [uni_model_path, uni_vocab_path]
+unified_model = (
+    load_model(
+        DiT,
+        v1_base_cfg,
+        uni_model_path,
+        vocab_file=uni_vocab_path,
+    )
+    if not lazy_load_model
+    else [uni_model_path, uni_vocab_path]
+)
 
 tts_lang_model_collections = {
     "MSA (Modern Standard Arabic)": {
         "Unified": unified_model,
-        "Specialized": [msa_model_path, msa_vocab_path] if lazy_load_model else load_model(DiT, v1_base_cfg, msa_model_path, vocab_file=msa_vocab_path),
+        "Specialized": [msa_model_path, msa_vocab_path]
+        if lazy_load_model
+        else load_model(DiT, v1_base_cfg, msa_model_path, vocab_file=msa_vocab_path),
     },
     "SAU (Najdi, Hijazi, Gulf, etc.)": {
         "Unified": unified_model,
-        "Specialized": [sau_model_path, sau_vocab_path] if lazy_load_model else load_model(DiT, v1_base_cfg, sau_model_path, vocab_file=sau_vocab_path),
+        "Specialized": [sau_model_path, sau_vocab_path]
+        if lazy_load_model
+        else load_model(DiT, v1_base_cfg, sau_model_path, vocab_file=sau_vocab_path),
     },
     "UAE (Emirati)": {
         "Unified": unified_model,
-        "Specialized": [uae_model_path, uae_vocab_path] if lazy_load_model else load_model(DiT, v1_base_cfg, uae_model_path, vocab_file=uae_vocab_path),
+        "Specialized": [uae_model_path, uae_vocab_path]
+        if lazy_load_model
+        else load_model(DiT, v1_base_cfg, uae_model_path, vocab_file=uae_vocab_path),
     },
     "ALG (Algerian & Algerian Saharan)": {
         "Unified": unified_model,
-        "Specialized": [alg_model_path, alg_vocab_path] if lazy_load_model else load_model(DiT, v1_base_cfg, alg_model_path, vocab_file=alg_vocab_path),
+        "Specialized": [alg_model_path, alg_vocab_path]
+        if lazy_load_model
+        else load_model(DiT, v1_base_cfg, alg_model_path, vocab_file=alg_vocab_path),
     },
     "IRQ (Mesopotamian & North Mesopotamian)": {
         "Unified": unified_model,
-        "Specialized": [irq_model_path, irq_vocab_path] if lazy_load_model else load_model(DiT, v1_base_cfg, irq_model_path, vocab_file=irq_vocab_path),
+        "Specialized": [irq_model_path, irq_vocab_path]
+        if lazy_load_model
+        else load_model(DiT, v1_base_cfg, irq_model_path, vocab_file=irq_vocab_path),
     },
     "EGY (Egyptian, Saidi, etc.)": {
         "Unified": unified_model,
-        "Specialized": [egy_model_path, egy_vocab_path] if lazy_load_model else load_model(DiT, v1_base_cfg, egy_model_path, vocab_file=egy_vocab_path),
+        "Specialized": [egy_model_path, egy_vocab_path]
+        if lazy_load_model
+        else load_model(DiT, v1_base_cfg, egy_model_path, vocab_file=egy_vocab_path),
     },
     "MAR (Moroccan or Darija)": {
         "Unified": unified_model,
-        "Specialized": [mar_model_path, mar_vocab_path] if lazy_load_model else load_model(DiT, v1_base_cfg, mar_model_path, vocab_file=mar_vocab_path),
+        "Specialized": [mar_model_path, mar_vocab_path]
+        if lazy_load_model
+        else load_model(DiT, v1_base_cfg, mar_model_path, vocab_file=mar_vocab_path),
     },
     "OMN (Omani, Dhofari, etc.)": {
         "Unified": unified_model,
@@ -136,38 +154,66 @@ tts_lang_model_collections = {
     "LBY (Libyan)": {
         "Unified": unified_model,
     },
+    "UNK (Unknown)": {
+        "Unified": unified_model,
+    },
 }
 
 # text-to-speech language reference example gallery
 tts_lang_ref_examples_collections = {
     "MSA (Modern Standard Arabic)": [
-        [files("habibi_tts").joinpath("assets/MSA.mp3"), "كان اللعيب حاضرًا في العديد من الأنشطة والفعاليات المرتبطة بكأس العالم، مما سمح للجماهير بالتفاعل معه والتقاط الصور التذكارية."],
+        [
+            files("habibi_tts").joinpath("assets/MSA.mp3"),
+            "كان اللعيب حاضرًا في العديد من الأنشطة والفعاليات المرتبطة بكأس العالم، مما سمح للجماهير بالتفاعل معه والتقاط الصور التذكارية.",
+        ],
     ],
     "SAU (Najdi, Hijazi, Gulf, etc.)": [
-        [files("habibi_tts").joinpath("assets/Najdi.wav"), "تكفى طمني انا اليوم ماني بنايم ولا هو بداخل عيني النوم الين اتطمن عليه."],
-        [files("habibi_tts").joinpath("assets/Hijazi.wav"), "ابغاك تحقق معاه بس بشكل ودي لانه سلطان يمر بظروف صعبة شوية."],
-        [files("habibi_tts").joinpath("assets/Gulf.wav"), "وين تو الناس متى تصحى ومتى تفطر وتغير يبيلك ساعة يعني بالله تروح الشغل الساعة عشره."],
+        [
+            files("habibi_tts").joinpath("assets/Najdi.wav"),
+            "تكفى طمني انا اليوم ماني بنايم ولا هو بداخل عيني النوم الين اتطمن عليه.",
+        ],
+        [
+            files("habibi_tts").joinpath("assets/Hijazi.wav"),
+            "ابغاك تحقق معاه بس بشكل ودي لانه سلطان يمر بظروف صعبة شوية.",
+        ],
+        [
+            files("habibi_tts").joinpath("assets/Gulf.wav"),
+            "وين تو الناس متى تصحى ومتى تفطر وتغير يبيلك ساعة يعني بالله تروح الشغل الساعة عشره.",
+        ],
     ],
     "UAE (Emirati)": [
-        [files("habibi_tts").joinpath("assets/UAE.wav"), "قمنا نشتريها بشكل متكرر أو لما نلقى ستايل يعجبنا وحياناً هذا الستايل ما نحبه."],
+        [
+            files("habibi_tts").joinpath("assets/UAE.wav"),
+            "قمنا نشتريها بشكل متكرر أو لما نلقى ستايل يعجبنا وحياناً هذا الستايل ما نحبه.",
+        ],
     ],
     "ALG (Algerian & Algerian Saharan)": [
         [files("habibi_tts").joinpath("assets/ALG.wav"), "أنيا هكا باغية ناكل هكا أني ن نشوف فيها الحاجة هذيكا."],
     ],
     "IRQ (Mesopotamian & North Mesopotamian)": [
-        [files("habibi_tts").joinpath("assets/IRQ.wav"), "يعني ااا ما نقدر ناخذ وقت أكثر، ااا لأنه شروط كلش يحتاجلها وقت."],
+        [
+            files("habibi_tts").joinpath("assets/IRQ.wav"),
+            "يعني ااا ما نقدر ناخذ وقت أكثر، ااا لأنه شروط كلش يحتاجلها وقت.",
+        ],
     ],
     "EGY (Egyptian, Saidi, etc.)": [
-        [files("habibi_tts").joinpath("assets/EGY.mp3"), "ايه الكلام. بقولك ايه. استخدم صوتي في المحادثات. استخدمه هيعجبك اوي."],
+        [
+            files("habibi_tts").joinpath("assets/EGY.mp3"),
+            "ايه الكلام. بقولك ايه. استخدم صوتي في المحادثات. استخدمه هيعجبك اوي.",
+        ],
     ],
     "MAR (Moroccan or Darija)": [
-        [files("habibi_tts").joinpath("assets/MAR.mp3"), "إذا بغيتي شي صوت باللهجة المغربية للإعلانات ديالك هذا أحسن واحد غادي تلقاه."],
+        [
+            files("habibi_tts").joinpath("assets/MAR.mp3"),
+            "إذا بغيتي شي صوت باللهجة المغربية للإعلانات ديالك هذا أحسن واحد غادي تلقاه.",
+        ],
     ],
     "OMN (Omani, Dhofari, etc.)": [],
     "TUN (Tunisian)": [],
     "LEV (Levantine)": [],
     "SDN (Sudanese)": [],
     "LBY (Libyan)": [],
+    "UNK (Unknown)": [],
 }
 
 # default values (use the first in gallery as default)
@@ -228,6 +274,13 @@ def infer(
             vocab_file=vocab_path,
         )
 
+    if tts_model_choice == "Specialized":
+        dialect_id = None
+    elif tts_model_choice == "Unified":
+        dialect_id = dialect_id_map[tts_lang_choice]
+    else:
+        raise AttributeError(f"[Code infer_gradio.py] unexpected tts_model_choice {tts_model_choice}")
+
     final_wave, final_sample_rate, _ = infer_process(
         ref_audio,
         ref_text,
@@ -239,6 +292,7 @@ def infer(
         speed=speed,
         show_info=show_info,
         progress=gr.Progress(),
+        dialect_id=dialect_id,
     )
 
     # Remove silence
@@ -722,7 +776,7 @@ with gr.Blocks() as app_multistyle:
 with gr.Blocks() as app:
     gr.Markdown(
         f"""
-        # [Habibi: Laying the Open-Source Foundation of Unified-Dialectal Arabic Speech Synthesis](https://arxiv.org/abs/2601.13802)
+        # [Habibi](https://arxiv.org/abs/2601.13802): Laying the Open-Source Foundation of Unified-Dialectal Arabic Speech Synthesis
 
         This is {"a local web UI" if not USING_SPACES else "an online demo"} for [Habibi-TTS](https://github.com/SWivid/Habibi-TTS).
 
@@ -731,7 +785,7 @@ with gr.Blocks() as app:
         * Use more qualified reference audio instead of default, ensure less than 12 seconds (use  ✂  to clip)
         * Provide an exactly matched reference text, which ends with proper punctuation, e.g. a period
         * Ensure the audio is fully uploaded before generating
-        * If any issues, try convert to WAV or MP3 format first, and check FFmpeg installation
+        * If any issues, try convert to WAV or MP3 format first{", and check FFmpeg installation" if not USING_SPACES else ""}
 
         **The terminology (three letters capitalized) does not reflect any official classification for Arabic.**
         """
