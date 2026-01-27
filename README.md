@@ -112,6 +112,10 @@ python src/habibi_tts/eval/4_cal_utmos.py -w results/11Labs_3a/MSA
 # --wav-dir WAV_DIR (the folder of generated samples)
 ```
 
+> [!NOTE]  
+> If conflicts after omnilingual-asr installation, e.g. flash-attn, try re-install   
+> `pip uninstall -y flash-attn && pip install flash-attn --no-build-isolation`
+
 
 ## License
 All code is released under MIT License.    
