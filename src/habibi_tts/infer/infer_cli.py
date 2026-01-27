@@ -61,7 +61,7 @@ parser.add_argument(
         "-d",
         "--dialect",
         type=str,
-        help="The dialect id, only [X] ones support specialized version: UNK | [MSA] | [SAU] | [UAE] | [ALG] | [IRQ] | [EGY] | [IRQ] | OMN | TUN | LEV | SDN | LBY",
+        help="The dialect id, only [X] ones support specialized version: UNK | [MSA] | [SAU] | [UAE] | [ALG] | [IRQ] | [EGY] | [MAR] | OMN | TUN | LEV | SDN | LBY",
     ),
 )
 parser.add_argument(

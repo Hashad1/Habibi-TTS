@@ -38,7 +38,7 @@ habibi-tts_infer-cli \
 --gen_text "أهلًا، يبدو أن هناك بعض التعقيدات، لكن لا تقلق، سأرشدك بطريقة سلسة وواضحة خطوة بخطوة."
 
 # Assign the dialect ID, rather than inferred from given reference prompt (UNK, by default)
-# (best use matched dialectal content with ID: MSA, SAU, UAE, ALG, IRQ, EGY, IRQ, OMN, TUN, LEV, SDN, LBY)
+# (best use matched dialectal content with ID: MSA, SAU, UAE, ALG, IRQ, EGY, MAR, OMN, TUN, LEV, SDN, LBY)
 habibi-tts_infer-cli --dialect MSA
 
 # Alternatively, use `.toml` file to config, see `src/habibi_tts/infer/example.toml`
@@ -53,8 +53,63 @@ habibi-tts_infer-cli --help
 
 
 ## Benchmarking
+
+### 0. Benchmark setup
 ```bash
-# SOON
+# Example template for benchmark use:
+python src/habibi_tts/eval/0_benchmark.py -d MSA
+# --dialect DIALECT (MSA | SAU | UAE | ALG | IRQ | EGY | MAR)
+```
+
+### 1. Generate benchmark samples with Habibi or 11Labs
+```bash
+# Zero-shot TTS performance evaluation:
+accelerate launch src/habibi_tts/eval/1_infer_habibi.py -m Unified -d MAR
+# --model MODEL (Unified | Specialized)
+# --dialect DIALECT (MSA | SAU | UAE | ALG | IRQ | EGY | MAR)
+
+# Use single prompt, to compare with 11Labs model:
+accelerate launch src/habibi_tts/eval/1_infer_habibi.py -m Specialized -d IRQ -s
+# --single (<- add this flag)
+
+# Use single prompt, call ElevenLabs Eleven v3 (alpha) API:
+pip install elevenlabs
+python src/habibi_tts/eval/1_infer_11labs.py -a YOUR_API_KEY -d MSA
+# --api-key API_KEY (your 11labs account API key)
+# --dialect DIALECT (MSA | SAU | UAE | ALG | IRQ | EGY | MAR)
+```
+
+### 2. Transcribe samples with ASR models and calculate WER
+```bash
+# Evaluate WER-O with Meta Omnilingual-ASR-LLM-7B v1:
+pip install omnilingual-asr
+python src/habibi_tts/eval/2_cal_wer-o.py -w results/Habibi/IRQ_Specialized_single -d IRQ
+# --wav-dir WAV_DIR (the folder of generated samples)
+# --dialect DIALECT (MSA | SAU | UAE | ALG | IRQ | EGY | MAR)
+# --batch-size BATCH_SIZE (set smaller if OOM, default 64)
+
+# Evaluate WER-S with dialect-specific ASR models:
+python src/habibi_tts/eval/2_cal_wer-s.py -w results/Habibi/MAR_Unified -d MAR
+# --wav-dir WAV_DIR (the folder of generated samples)
+# --dialect DIALECT (EGY | MAR)
+```
+
+### 3. Calculate speaker similarity (SIM) between generated and prompt
+Download WavLM Model from [Google Drive](https://drive.google.com/file/d/1-aE1NfzpRCLxA4GUxX9ITI3F9LlbtEGP/view), then
+```bash
+python src/habibi_tts/eval/3_cal_spksim.py -w results/Habibi/MAR_Unified -d MAR -c YOUR_WAVLM_PATH
+# --wav-dir WAV_DIR (the folder of generated samples)
+# --dialect DIALECT (MSA | SAU | UAE | ALG | IRQ | EGY | MAR)
+# --ckpt CKPT (the path of download WavLM model)
+
+python src/habibi_tts/eval/3_cal_spksim.py -w results/Habibi/IRQ_Specialized_single -d IRQ -c YOUR_WAVLM_PATH -s
+# --single (if eval single prompt or 11labs results)
+```
+
+### 4. Calculate UTMOS of generated samples
+```bash
+python src/habibi_tts/eval/4_cal_utmos.py -w results/11Labs_3a/MSA
+# --wav-dir WAV_DIR (the folder of generated samples)
 ```
 
 
