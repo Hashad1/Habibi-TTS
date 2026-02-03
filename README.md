@@ -52,6 +52,10 @@ habibi-tts_infer-cli --help
 > Some dialectal audio samples are provided under `src/habibi_tts/assets`, see the relevant [README.md](https://github.com/SWivid/Habibi-TTS/blob/main/src/habibi_tts/assets/README.md) for usage and more details.
 
 
+## Training & Finetuning
+See https://github.com/SWivid/Habibi-TTS/issues/2.
+
+
 ## Benchmarking
 
 ### 0. Benchmark setup
